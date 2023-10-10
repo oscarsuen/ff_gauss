@@ -110,21 +110,23 @@ function isrowechelon(G::Matrix{FF})
     return true
 end
 
-function rankgauss(G::Matrix)
-    # return count(!iszero, eachrow(G))
-    # return sum((!iszero).(eachrow(G)))
-    # return searchsortedfirst(1:size(G)[1], 1, by=x->iszero(G[x, :])) #fails
-    return searchsortedfirst(eachrow(G), 0, by=iszero)-1
-end
-function rank!(A::Matrix{FF})
-    return rankgauss(gelim!(A))
-    # display(A)
-    # G = gelim!(A)
-    # display(G)
-    # return rankgauss(G)
-end
+# function rankgauss(G::Matrix)
+#     return count(!iszero, eachrow(G))
+#     return sum((!iszero).(eachrow(G)))
+#     return searchsortedfirst(1:size(G)[1], 1, by=x->iszero(G[x, :])) #fails
+#     return searchsortedfirst(eachrow(G), 0, by=iszero)-1
+# end
+rankgauss(G::Matrix{FF}) = searchsortedfirst(eachrow(G), 0, by=iszero) - 1
 
-function rank_distribution(samples, rows=n, cols=m)
-    return (rank!(gen_matrix(rows, cols)) for _ in 1:samples)
-end
+# function rank!(A::Matrix{FF})
+#     display(A)
+#     G = gelim!(A)
+#     display(G)
+#     return rankgauss(G)
+# end
+rank!(A::Matrix{FF}) = rankgauss(gelim!(A))
 
+rank_distribution(samples, rows=n, cols=m) = (rank!(gen_matrix(rows, cols)) for _ ∈ 1:samples)
+
+square_ranks(samples, max_k) = (rank_distribution(samples, k, k) for k ∈ 1:max_k)
+mean_ranks(samples, max_k) = mean.(square_ranks(samples, max_k))
