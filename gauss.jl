@@ -1,47 +1,59 @@
 using Statistics
+using StatsPlots
 
-q = 2
-n = 3
-m = 3
+# Q_DEFAULT = 2
+# DIMS_DEFAULT = (5, 3)
+# SAMPLES_DEFAULT = 100
 
-struct FF
+# TODO: type + prime checking
+struct FF{q}
     x::Int
-    FF(x) = new(mod(x, q))
+    FF{q}(x::Int) where {q} = new{q}(mod(x, q))
 end
-Base.show(io::IO, a::FF) = print(io, a.x, "q", q)
+Base.show(io::IO, a::FF{q}) where {q} = print(io, a.x, "q", q)
 Base.Broadcast.broadcastable(a::FF) = Ref(a)
 
-Base.zero(::Type{FF}) = FF(0)
-Base.zero(::FF) = FF(0)
-Base.one(::Type{FF}) = FF(1)
-Base.one(::FF) = FF(1)
+Base.zero(::Type{FF{q}}) where {q} = FF{q}(0)
+Base.zero(::FF{q}) where {q} = FF{q}(0)
+Base.one(::Type{FF{q}}) where {q} = FF{q}(1)
+Base.one(::FF{q}) where {q} = FF{q}(1)
 
-qinv = zeros(Int, q-1)
-for i ∈ 1:(q-1)
-    for j ∈ 1:(q-1)
-        if mod(i*j, q) == 1
-            qinv[i] = j
-            continue
+function make_qinv(q::Int)
+    qinv = zeros(Int, q-1)
+    for i ∈ 1:(q-1)
+        for j ∈ 1:(q-1)
+            if mod(i*j, q) == 1
+                qinv[i] = j
+                continue
+            end
         end
     end
+    # println("made qinv $q")
+    # display(qinv)
+    return qinv
 end
-function inv(a::FF)
+qinv_dict = Dict{Int, Vector{Int}}()
+
+function inv(a::FF{q}) where {q}
+    qinv = get!(qinv_dict, q) do 
+        make_qinv(q)
+    end
     if iszero(a)
         # throw(DivideError(x, "cannot invert 0"))
         error("cannot invert 0")
     end
-    return FF(qinv[a.x])
+    return FF{q}(qinv[a.x])
 end
 
-Base.:+(a::FF, b::FF) = FF(a.x+b.x)
-Base.:*(a::FF, b::FF) = FF(a.x*b.x)
-Base.:-(a::FF) = FF(-a.x)
-Base.:-(a::FF, b::FF) = a + (-b)
-Base.:/(a::FF, b::FF) = a * inv(b)
+Base.:+(a::FF{q}, b::FF{q}) where {q} = FF{q}(a.x+b.x)
+Base.:*(a::FF{q}, b::FF{q}) where {q} = FF{q}(a.x*b.x)
+Base.:-(a::FF{q}) where {q} = FF{q}(-a.x)
+Base.:-(a::FF{q}, b::FF{q}) where {q} = a + (-b)
+Base.:/(a::FF{q}, b::FF{q}) where {q} = a * inv(b)
 
-gen_matrix(rows=n, cols=m) = FF.(rand(0:(q-1), rows, cols))
+gen_matrix(q::Int, dims::Tuple{Int, Int}) = FF{q}.(rand(0:(q-1), dims...))
 
-function gelim!(A::Matrix{FF})
+function gelim!(A::Matrix)
     # Does not back substitute
     G = A
     # G = copy(A)
@@ -82,7 +94,7 @@ function gelim!(A::Matrix{FF})
     return G
 end
 
-function isrowechelon(G::Matrix{FF})
+function isrowechelon(G::Matrix)
     # println("check matrix")
     # display(G)
     j = 0
@@ -116,17 +128,36 @@ end
 #     return searchsortedfirst(1:size(G)[1], 1, by=x->iszero(G[x, :])) #fails
 #     return searchsortedfirst(eachrow(G), 0, by=iszero)-1
 # end
-rankgauss(G::Matrix{FF}) = searchsortedfirst(eachrow(G), 0, by=iszero) - 1
+rankgauss(G::Matrix) = searchsortedfirst(eachrow(G), 0, by=iszero) - 1
 
-# function rank!(A::Matrix{FF})
+# function rank!(A::Matrix)
 #     display(A)
 #     G = gelim!(A)
 #     display(G)
 #     return rankgauss(G)
 # end
-rank!(A::Matrix{FF}) = rankgauss(gelim!(A))
+rank!(A::Matrix) = rankgauss(gelim!(A))
 
-rank_distribution(samples, rows=n, cols=m) = (rank!(gen_matrix(rows, cols)) for _ ∈ 1:samples)
+rank_distribution(q::Int, dims::Tuple{Int, Int}, samples::Int) = (rank!(gen_matrix(q, dims)) for _ ∈ 1:samples)
 
-square_ranks(samples, max_k) = (rank_distribution(samples, k, k) for k ∈ 1:max_k)
-mean_ranks(samples, max_k) = mean.(square_ranks(samples, max_k))
+square_ranks(q::Int, samples::Int, max_k::Int) = (rank_distribution(q, (k, k), samples) for k ∈ 1:max_k)
+mean_ranks(q::Int, samples::Int, max_k::Int) = mean.(square_ranks(q, samples, max_k))
+
+function gen_linegraph(qs::AbstractVector{Int}, ns::AbstractVector{Int}, samples::Int; diff=true::Bool)
+    if diff
+        plot()
+    else
+        plot(ns, ns, label="0")
+    end
+    for q ∈ qs
+        if diff
+            errorline!(ns, stack(n .- rank_distribution(q, (n, n), samples) for n ∈ ns), errorstyle=:stick, errortype=:sem, secondarycolor=:matched, label="$q")
+        else
+            errorline!(ns, stack(rank_distribution(q, (n, n), samples)|>collect for n ∈ ns), errorstyle=:stick, errortype=:sem, secondarycolor=:matched, label="$q")
+        end
+    end
+    # errorline(ns, stack(stack(n .- rank_distribution(q, (n, n), samples) for n ∈ ns; dims=1) for q ∈ qs), errorstyle=:stick, errortype=:sem, label=qs')
+    gui()
+end
+
+# histogram(rank_distribution(2, (100, 100), 1000)|>collect); gui()
